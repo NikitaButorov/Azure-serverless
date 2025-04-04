@@ -28,6 +28,7 @@ jobs:
           ACR_PASSWORD=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query "passwords[0].value" -o tsv)
           echo "ACR_USERNAME=$ACR_USERNAME" >> $GITHUB_ENV
           echo "ACR_PASSWORD=$ACR_PASSWORD" >> $GITHUB_ENV
+          echo "ACR_SERVER=${{ secrets.REGISTRY_NAME }}.azurecr.io" >> $GITHUB_ENV
 
       # Docker login в ACR
       - name: Docker login to ACR
@@ -57,42 +58,16 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Создаем или обновляем управляемую идентичность
-      - name: Create managed identity if not exists
+      # Получаем учетные данные ACR (повторно в рамках job deploy)
+      - name: Get ACR credentials for deployment
         run: |
-          # Проверяем существует ли идентичность
-          IDENTITY_EXISTS=$(az identity list --resource-group ${{ secrets.RESOURCE_GROUP }} --query "[?name=='container-app-identity'].name" -o tsv)
-          
-          if [ -z "$IDENTITY_EXISTS" ]; then
-            # Создаем идентичность
-            echo "Creating managed identity..."
-            az identity create --name container-app-identity --resource-group ${{ secrets.RESOURCE_GROUP }}
-          else
-            echo "Managed identity already exists"
-          fi
-          
-          # Получаем ID идентичности
-          IDENTITY_ID=$(az identity show --name container-app-identity --resource-group ${{ secrets.RESOURCE_GROUP }} --query id -o tsv)
-          PRINCIPAL_ID=$(az identity show --name container-app-identity --resource-group ${{ secrets.RESOURCE_GROUP }} --query principalId -o tsv)
-          
-          # Сохраняем ID для использования в дальнейшем
-          echo "IDENTITY_ID=$IDENTITY_ID" >> $GITHUB_ENV
-          echo "PRINCIPAL_ID=$PRINCIPAL_ID" >> $GITHUB_ENV
-          
-          # Даем идентичности доступ к ACR
-          ACR_ID=$(az acr show --name ${{ secrets.REGISTRY_NAME }} --query id -o tsv)
-          
-          # Проверяем, есть ли уже роль
-          ROLE_EXISTS=$(az role assignment list --assignee $PRINCIPAL_ID --scope $ACR_ID --query "[?roleDefinitionName=='AcrPull'].roleDefinitionName" -o tsv)
-          
-          if [ -z "$ROLE_EXISTS" ]; then
-            echo "Assigning AcrPull role..."
-            az role assignment create --assignee $PRINCIPAL_ID --role AcrPull --scope $ACR_ID
-          else
-            echo "Role assignment already exists"
-          fi
+          ACR_USERNAME=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query "username" -o tsv)
+          ACR_PASSWORD=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query "passwords[0].value" -o tsv)
+          echo "ACR_USERNAME=$ACR_USERNAME" >> $GITHUB_ENV
+          echo "ACR_PASSWORD=$ACR_PASSWORD" >> $GITHUB_ENV
+          echo "ACR_SERVER=${{ secrets.REGISTRY_NAME }}.azurecr.io" >> $GITHUB_ENV
 
-      # Обновляем или создаем Container App с указанной идентичностью
+      # Обновляем или создаем Container App с прямой аутентификацией ACR
       - name: Deploy to Azure Container Apps
         run: |
           # Проверяем существует ли Container App
@@ -105,8 +80,10 @@ jobs:
               --name ${{ secrets.CONTAINER_APP_NAME }} \
               --resource-group ${{ secrets.RESOURCE_GROUP }} \
               --environment ${{ secrets.CONTAINER_APP_ENVIRONMENT }} \
-              --image ${{ secrets.REGISTRY_NAME }}.azurecr.io/${{ secrets.IMAGE_NAME }}:${{ github.sha }} \
-              --user-assigned ${{ env.IDENTITY_ID }} \
+              --image ${{ env.ACR_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }} \
+              --registry-server ${{ env.ACR_SERVER }} \
+              --registry-username ${{ env.ACR_USERNAME }} \
+              --registry-password ${{ env.ACR_PASSWORD }} \
               --target-port 3000 \
               --ingress external \
               --min-replicas 0 \
@@ -114,9 +91,18 @@ jobs:
           else
             # Обновляем существующий Container App
             echo "Updating existing Container App..."
+            
+            # Обновляем учетные данные ACR
+            az containerapp registry set \
+              --name ${{ secrets.CONTAINER_APP_NAME }} \
+              --resource-group ${{ secrets.RESOURCE_GROUP }} \
+              --server ${{ env.ACR_SERVER }} \
+              --username ${{ env.ACR_USERNAME }} \
+              --password ${{ env.ACR_PASSWORD }}
+            
+            # Обновляем образ
             az containerapp update \
               --name ${{ secrets.CONTAINER_APP_NAME }} \
               --resource-group ${{ secrets.RESOURCE_GROUP }} \
-              --image ${{ secrets.REGISTRY_NAME }}.azurecr.io/${{ secrets.IMAGE_NAME }}:${{ github.sha }} \
-              --user-assigned ${{ env.IDENTITY_ID }}
+              --image ${{ env.ACR_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}
           fi 

@@ -212,6 +212,76 @@
        file: ./Dockerfile
    ```
 
+## Решение проблемы с Microsoft.ManagedIdentity
+
+Если вы получаете ошибку:
+```
+MissingSubscriptionRegistration: The subscription is not registered to use namespace 'Microsoft.ManagedIdentity'
+```
+
+Это означает, что провайдер ресурсов Microsoft.ManagedIdentity не зарегистрирован в вашей подписке. У вас есть два варианта решения:
+
+### Вариант 1: Зарегистрировать провайдер ресурсов (если у вас есть доступ)
+
+```bash
+# Регистрация провайдера ресурсов
+az provider register --namespace Microsoft.ManagedIdentity
+```
+
+Это может занять несколько минут. Проверьте статус регистрации:
+
+```bash
+az provider show -n Microsoft.ManagedIdentity --query "registrationState"
+```
+
+### Вариант 2: Использовать прямую аутентификацию вместо Managed Identity
+
+Если вы не можете зарегистрировать провайдер (например, из-за ограничений подписки), используйте прямую аутентификацию с учетными данными ACR:
+
+1. В GitHub Actions workflow, замените использование управляемой идентичности на прямые учетные данные:
+
+```yaml
+# Обновляем или создаем Container App с прямой аутентификацией ACR
+- name: Deploy to Azure Container Apps
+  run: |
+    # Получаем учетные данные ACR
+    ACR_USERNAME=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query "username" -o tsv)
+    ACR_PASSWORD=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query "passwords[0].value" -o tsv)
+    
+    # Создаем/обновляем Container App
+    az containerapp create/update \
+      --name ${{ secrets.CONTAINER_APP_NAME }} \
+      --resource-group ${{ secrets.RESOURCE_GROUP }} \
+      --image ${{ secrets.REGISTRY_NAME }}.azurecr.io/${{ secrets.IMAGE_NAME }}:${{ github.sha }} \
+      --registry-server ${{ secrets.REGISTRY_NAME }}.azurecr.io \
+      --registry-username $ACR_USERNAME \
+      --registry-password $ACR_PASSWORD
+```
+
+2. При ручном создании или обновлении Container App:
+
+```bash
+# Получение учетных данных ACR
+ACR_USERNAME=$(az acr credential show -n myAcrRegistry --query "username" -o tsv)
+ACR_PASSWORD=$(az acr credential show -n myAcrRegistry --query "passwords[0].value" -o tsv)
+
+# Создание Container App с учетными данными ACR
+az containerapp create \
+  --name my-container-app \
+  --resource-group myResourceGroup \
+  --environment my-environment \
+  --image myacrregistry.azurecr.io/azure-container-app:latest \
+  --registry-server myacrregistry.azurecr.io \
+  --registry-username $ACR_USERNAME \
+  --registry-password $ACR_PASSWORD \
+  --target-port 3000 \
+  --ingress external \
+  --min-replicas 0 \
+  --max-replicas 10
+```
+
+Этот подход тоже обеспечивает бессерверное исполнение, но использует учетные данные администратора ACR вместо управляемой идентичности.
+
 ## Преимущества бессерверного исполнения
 
 - Автоматическое масштабирование до нуля (минимум 0 реплик) - вы не платите, когда нет трафика
