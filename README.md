@@ -282,6 +282,84 @@ az containerapp create \
 
 Этот подход тоже обеспечивает бессерверное исполнение, но использует учетные данные администратора ACR вместо управляемой идентичности.
 
+## Решение проблемы с постоянными ошибками аутентификации
+
+Если вы продолжаете сталкиваться с ошибками аутентификации даже после обновления учетных данных:
+
+```
+ERROR: Failed to provision revision for container app '***'. Error details: 
+Field 'template.containers.***.image' is invalid with details: 'Invalid value: "
+***.azurecr.io/***:HASH": GET https:?scope=repository%3A***%3Apull&service=***.azurecr.io: 
+UNAUTHORIZED: authentication required
+```
+
+Это может быть связано с проблемами обновления секретов в существующем Container App. Попробуйте альтернативный подход с пересозданием приложения:
+
+1. **Удалите и создайте заново Container App**:
+
+   ```bash
+   # Получение учетных данных ACR
+   ACR_USERNAME=$(az acr credential show -n myAcrRegistry --query "username" -o tsv)
+   ACR_PASSWORD=$(az acr credential show -n myAcrRegistry --query "passwords[0].value" -o tsv)
+   
+   # Сохраните важные настройки текущего приложения если необходимо
+   CONTAINER_APP_ENV=$(az containerapp show --name my-container-app --resource-group myResourceGroup --query properties.environmentId -o tsv)
+   
+   # Удаление существующего приложения
+   az containerapp delete --name my-container-app --resource-group myResourceGroup --yes
+   
+   # Создание нового приложения с обновленными учетными данными
+   az containerapp create \
+     --name my-container-app \
+     --resource-group myResourceGroup \
+     --environment my-environment \
+     --image myacrregistry.azurecr.io/azure-container-app:latest \
+     --registry-server myacrregistry.azurecr.io \
+     --registry-username $ACR_USERNAME \
+     --registry-password $ACR_PASSWORD \
+     --target-port 3000 \
+     --ingress external \
+     --min-replicas 0 \
+     --max-replicas 10
+   ```
+
+2. **Обновите GitHub Actions workflow**:
+
+   В вашем GitHub Actions workflow измените логику обновления, чтобы удалять и повторно создавать приложение вместо обновления:
+
+   ```yaml
+   - name: Deploy to Azure Container Apps
+     run: |
+       # Проверяем существует ли Container App
+       APP_EXISTS=$(az containerapp show --name ${{ secrets.CONTAINER_APP_NAME }} --resource-group ${{ secrets.RESOURCE_GROUP }} 2>/dev/null || echo "false")
+       
+       if [ "$APP_EXISTS" = "false" ]; then
+         # Создаем новый Container App
+         # ...
+       else
+         # Удаляем и создаем заново
+         az containerapp delete \
+           --name ${{ secrets.CONTAINER_APP_NAME }} \
+           --resource-group ${{ secrets.RESOURCE_GROUP }} \
+           --yes
+         
+         az containerapp create \
+           --name ${{ secrets.CONTAINER_APP_NAME }} \
+           --resource-group ${{ secrets.RESOURCE_GROUP }} \
+           --environment ${{ secrets.CONTAINER_APP_ENVIRONMENT }} \
+           --image ${{ secrets.REGISTRY_NAME }}.azurecr.io/${{ secrets.IMAGE_NAME }}:${{ github.sha }} \
+           --registry-server ${{ secrets.REGISTRY_NAME }}.azurecr.io \
+           --registry-username $ACR_USERNAME \
+           --registry-password $ACR_PASSWORD \
+           --target-port 3000 \
+           --ingress external \
+           --min-replicas 0 \
+           --max-replicas 10
+       fi
+   ```
+
+Этот подход гарантирует создание приложения с актуальными учетными данными, обходя проблемы с обновлением секретов в существующем Container App.
+
 ## Преимущества бессерверного исполнения
 
 - Автоматическое масштабирование до нуля (минимум 0 реплик) - вы не платите, когда нет трафика

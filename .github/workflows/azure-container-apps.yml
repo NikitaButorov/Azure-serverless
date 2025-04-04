@@ -89,20 +89,30 @@ jobs:
               --min-replicas 0 \
               --max-replicas 10
           else
-            # Обновляем существующий Container App
-            echo "Updating existing Container App..."
+            # Обновляем существующий Container App с явной передачей образа и учетных данных одной командой
+            echo "Recreating Container App with new credentials..."
             
-            # Обновляем учетные данные ACR
-            az containerapp registry set \
+            # Получаем текущие настройки для сохранения
+            CONTAINER_APP_ENV=$(az containerapp show --name ${{ secrets.CONTAINER_APP_NAME }} --resource-group ${{ secrets.RESOURCE_GROUP }} --query properties.environmentId -o tsv)
+            echo "CONTAINER_APP_ENV=$CONTAINER_APP_ENV" >> $GITHUB_ENV
+            
+            # Удаляем существующее приложение
+            az containerapp delete \
               --name ${{ secrets.CONTAINER_APP_NAME }} \
               --resource-group ${{ secrets.RESOURCE_GROUP }} \
-              --server ${{ env.ACR_SERVER }} \
-              --username ${{ env.ACR_USERNAME }} \
-              --password ${{ env.ACR_PASSWORD }}
+              --yes
             
-            # Обновляем образ
-            az containerapp update \
+            # Создаем приложение заново с обновленными учетными данными
+            az containerapp create \
               --name ${{ secrets.CONTAINER_APP_NAME }} \
               --resource-group ${{ secrets.RESOURCE_GROUP }} \
-              --image ${{ env.ACR_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}
+              --environment ${{ secrets.CONTAINER_APP_ENVIRONMENT }} \
+              --image ${{ env.ACR_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }} \
+              --registry-server ${{ env.ACR_SERVER }} \
+              --registry-username ${{ env.ACR_USERNAME }} \
+              --registry-password ${{ env.ACR_PASSWORD }} \
+              --target-port 3000 \
+              --ingress external \
+              --min-replicas 0 \
+              --max-replicas 10
           fi 
