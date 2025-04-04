@@ -166,6 +166,52 @@
      --scope $ACR_ID
    ```
 
+## Решение проблемы с ACR Tasks
+
+Если вы столкнулись с ошибкой "TasksOperationsNotAllowed" при использовании `az acr build`:
+
+1. Это означает, что функционал ACR Tasks недоступен для вашего регистра. Обычно эта ошибка возникает из-за ограничений на плане Basic или в пробных подписках.
+
+2. Вместо ACR Tasks можно использовать стандартные команды Docker:
+
+   ```bash
+   # Получение учетных данных ACR
+   ACR_USERNAME=$(az acr credential show -n myAcrRegistry --query "username" -o tsv)
+   ACR_PASSWORD=$(az acr credential show -n myAcrRegistry --query "passwords[0].value" -o tsv)
+   
+   # Логин в Docker
+   docker login myacrregistry.azurecr.io -u $ACR_USERNAME -p $ACR_PASSWORD
+   
+   # Сборка и публикация образа
+   docker build -t myacrregistry.azurecr.io/my-image:latest .
+   docker push myacrregistry.azurecr.io/my-image:latest
+   ```
+
+3. В GitHub Actions workflow используйте `docker/login-action` и `docker/build-push-action` вместо `az acr build`:
+
+   ```yaml
+   - name: Get ACR credentials
+     run: |
+       ACR_USERNAME=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query "username" -o tsv)
+       ACR_PASSWORD=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query "passwords[0].value" -o tsv)
+       echo "ACR_USERNAME=$ACR_USERNAME" >> $GITHUB_ENV
+       echo "ACR_PASSWORD=$ACR_PASSWORD" >> $GITHUB_ENV
+
+   - name: Docker login to ACR
+     uses: docker/login-action@v2
+     with:
+       registry: ${{ secrets.REGISTRY_NAME }}.azurecr.io
+       username: ${{ env.ACR_USERNAME }}
+       password: ${{ env.ACR_PASSWORD }}
+
+   - name: Build and push Docker image
+     uses: docker/build-push-action@v4
+     with:
+       push: true
+       tags: ${{ secrets.REGISTRY_NAME }}.azurecr.io/${{ secrets.IMAGE_NAME }}:${{ github.sha }}
+       file: ./Dockerfile
+   ```
+
 ## Преимущества бессерверного исполнения
 
 - Автоматическое масштабирование до нуля (минимум 0 реплик) - вы не платите, когда нет трафика
