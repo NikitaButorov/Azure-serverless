@@ -46,4 +46,7 @@ jobs:
         with:
           containerAppName: ${{ secrets.CONTAINER_APP_NAME }}
           resourceGroup: ${{ secrets.RESOURCE_GROUP }}
-          imageToDeploy: ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }} 
+          imageToDeploy: ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}
+          registryUrl: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          registryUsername: ${{ secrets.REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.REGISTRY_PASSWORD }} 

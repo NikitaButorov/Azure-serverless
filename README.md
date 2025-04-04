@@ -44,18 +44,23 @@
    az acr create --resource-group myResourceGroup --name myAcrRegistry --sku Basic
    ```
 
-3. Выполните вход в реестр:
+3. Включите учетные данные администратора для ACR (важно для аутентификации):
+   ```
+   az acr update -n myAcrRegistry --admin-enabled true
+   ```
+
+4. Выполните вход в реестр:
    ```
    az acr login --name myAcrRegistry
    ```
 
-4. Соберите и отправьте образ в реестр:
+5. Соберите и отправьте образ в реестр:
    ```
    docker build -t myacrregistry.azurecr.io/azure-container-app:latest .
    docker push myacrregistry.azurecr.io/azure-container-app:latest
    ```
 
-5. Создайте окружение Container Apps:
+6. Создайте окружение Container Apps:
    ```
    az containerapp env create \
      --name my-environment \
@@ -63,7 +68,7 @@
      --location westeurope
    ```
 
-6. Создайте Container App:
+7. Создайте Container App:
    ```
    az containerapp create \
      --name my-container-app \
@@ -99,6 +104,56 @@
    ```
 
 4. Сохраните вывод JSON в секрет GitHub с именем `AZURE_CREDENTIALS`
+
+## Решение проблем с аутентификацией
+
+Если вы столкнулись с ошибкой "UNAUTHORIZED: authentication required" при развертывании:
+
+1. Убедитесь, что учетные данные администратора ACR включены:
+   ```
+   az acr update -n myAcrRegistry --admin-enabled true
+   ```
+
+2. Обновите учетные данные в GitHub Secrets:
+   ```
+   az acr credential show -n myAcrRegistry
+   ```
+
+3. Вы также можете вручную обновить конфигурацию Container App с правильными учетными данными:
+   ```
+   ACR_USERNAME=$(az acr credential show -n myAcrRegistry --query "username" -o tsv)
+   ACR_PASSWORD=$(az acr credential show -n myAcrRegistry --query "passwords[0].value" -o tsv)
+
+   az containerapp update \
+     --name my-container-app \
+     --resource-group myResourceGroup \
+     --registry-server myacrregistry.azurecr.io \
+     --registry-username $ACR_USERNAME \
+     --registry-password $ACR_PASSWORD
+   ```
+
+4. Альтернативный подход - использование управляемой идентичности для доступа к ACR:
+   ```
+   # Создание управляемой идентичности
+   az identity create --name container-app-identity --resource-group myResourceGroup
+
+   # Получение ID идентичности
+   IDENTITY_ID=$(az identity show --name container-app-identity --resource-group myResourceGroup --query id -o tsv)
+   PRINCIPAL_ID=$(az identity show --name container-app-identity --resource-group myResourceGroup --query principalId -o tsv)
+
+   # Обновление Container App
+   az containerapp update \
+     --name my-container-app \
+     --resource-group myResourceGroup \
+     --user-assigned $IDENTITY_ID
+
+   # Предоставление доступа к ACR
+   ACR_ID=$(az acr show --name myAcrRegistry --resource-group myResourceGroup --query id -o tsv)
+   az role assignment create \
+     --assignee $PRINCIPAL_ID \
+     --role AcrPull \
+     --scope $ACR_ID
+   ```
 
 ## Преимущества бессерверного исполнения
 
