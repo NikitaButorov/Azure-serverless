@@ -81,29 +81,40 @@
      --max-replicas 10
    ```
 
-### Настройка GitHub Actions для автоматического развертывания
+### Настройка GitHub Actions для автоматического развертывания (обновленный метод)
 
-1. Получите учетные данные для Azure Container Registry:
-   ```
-   az acr credential show --name myAcrRegistry
-   ```
+Для решения проблем с аутентификацией, мы используем управляемую идентичность (Managed Identity) вместо прямой передачи учетных данных:
 
-2. Создайте следующие секреты в репозитории GitHub:
-   - `REGISTRY_LOGIN_SERVER`: URL вашего ACR (например, myacrregistry.azurecr.io)
-   - `REGISTRY_USERNAME`: имя пользователя ACR
-   - `REGISTRY_PASSWORD`: пароль ACR
-   - `IMAGE_NAME`: имя образа (например, azure-container-app)
-   - `CONTAINER_APP_NAME`: имя вашего Container App (например, my-container-app)
-   - `RESOURCE_GROUP`: имя группы ресурсов (например, myResourceGroup)
+1. Создайте следующие секреты в репозитории GitHub:
+   - `REGISTRY_NAME`: имя вашего ACR без домена (например, `myacrregistry`)
+   - `IMAGE_NAME`: имя образа (например, `azure-container-app`)
+   - `CONTAINER_APP_NAME`: имя вашего Container App (например, `my-container-app`)
+   - `CONTAINER_APP_ENVIRONMENT`: имя окружения (например, `my-environment-env`)
+   - `RESOURCE_GROUP`: имя группы ресурсов (например, `myResourceGroup`)
 
-3. Создайте сервисный принципал для доступа GitHub Actions к Azure:
+2. Создайте сервисный принципал с доступом contributor к вашей группе ресурсов:
    ```
    az ad sp create-for-rbac --name "myContainerAppGitHubAction" --role contributor \
      --scopes /subscriptions/<subscription-id>/resourceGroups/myResourceGroup \
      --sdk-auth
    ```
 
-4. Сохраните вывод JSON в секрет GitHub с именем `AZURE_CREDENTIALS`
+3. Сохраните вывод JSON в секрет GitHub с именем `AZURE_CREDENTIALS`
+
+4. Обновленный workflow файл (.github/workflows/azure-container-apps.yml) автоматически:
+   - Создаст управляемую идентичность
+   - Настроит разрешения для доступа к ACR
+   - Использует Azure CLI для сборки и отправки образа
+   - Создаст или обновит Container App с использованием управляемой идентичности
+
+5. Запустите workflow вручную через GitHub Actions или выполните push в ветку main.
+
+## Преимущества использования управляемой идентичности
+
+- Более безопасный подход без хранения паролей
+- Упрощенное управление доступом через RBAC
+- Централизованное управление разрешениями
+- Автоматическое обновление токенов доступа
 
 ## Решение проблем с аутентификацией
 
