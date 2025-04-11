@@ -6,7 +6,7 @@ app.use(express.json());
 
 app.get('/', (req, res) => {
   res.json({
-    message: 'Привет из бессерверного приложения Azure Container Apps!',
+    message: 'Привет всем из бессерверного приложения Azure Container Apps!',
     timestamp: new Date().toISOString()
   });
 });
